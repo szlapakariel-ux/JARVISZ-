@@ -199,23 +199,26 @@ async def chat_handler(message: Message, state: FSMContext):
         msg = await message.answer(f"🔍 **Revisando {', '.join(status_parts)}...**")
         
         # Call OpenAI
-        response = await ai_service.chat(message.text, garmin_data, calendar_events, tasks_data, history)
+        # OpenAIService now manages history via Threads, so we pass user_id
+        response = await ai_service.chat(
+            user_input=message.text, 
+            garmin_data=garmin_data, 
+            calendar_events=calendar_events, 
+            tasks_data=tasks_data, 
+            user_id=user_id
+        )
         
         await msg.delete()
         await message.answer(response)
     else:
         # Normal chat
-        response = await ai_service.chat(message.text, None, None, None, history)
+        response = await ai_service.chat(
+            user_input=message.text, 
+            user_id=user_id
+        )
         await message.answer(response)
     
-    # Update History if we continued
-    history.append({"role": "user", "content": message.text})
-    history.append({"role": "assistant", "content": response})
-    if len(history) > 10:
-        history = history[-10:]
-    user_histories[user_id] = history
-    
-    # Log
+    # Log Interaction (Removed history update since Assistant handles it)
     interaction_logger.log_interaction(
         user_message=message.text,
         bot_response=response,
