@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     GARMIN_EMAIL: str
     GARMIN_PASSWORD: str
-    GROQ_API_KEY: SecretStr
+    OPENAI_API_KEY: SecretStr
     
     # Paths
     DB_PATH: str = "sqlite+aiosqlite:///jarvisz.db"

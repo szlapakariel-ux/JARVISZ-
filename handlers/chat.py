@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from services.groq_service import GroqService
+from services.openai_service import OpenAIService
 from services.interaction_logger import InteractionLogger
 from services.garmin import GarminService
 from services.calendar_service import CalendarService
@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 
 router = Router()
-grok = GroqService()
+ai_service = OpenAIService()
 interaction_logger = InteractionLogger()
 
 # --- States for Confirmation Loop ---
@@ -67,50 +67,17 @@ async def chat_handler(message: Message, state: FSMContext):
         user_histories[user_id] = []
     
     # --- 1. INTENT DETECTION (Regex/Keywords heuristic first) ---
-    # Removed "agenda", "evento", "tarea" (nouns) to avoid triggering on queries.
-    # Kept verbs forcing actions.
     intent_triggers = ["agendar", "borrar", "eliminar", "cancelar", "crear recordatorio"]
     
     if any(w in text for w in intent_triggers) and len(text.split()) > 2 and "?" not in text:
-        # ... (Existing Intent Logic - NO CHANGES HERE) ...
-        # (For brevity, I'm assuming we keep the existing Action Logic block here)
-        # But wait, replace_file_content replaces the BLOCK. I need to be careful not to delete logic.
-        # Since I'm updating the WHOLE chat_handler mostly to inject history, let's keep the logic.
-        
         processing_msg = await message.answer("🧠 **Procesando solicitud...**")
         
         from datetime import datetime
         now = datetime.now().isoformat()
         
-        system_prompt = f"""
-        Sos el modulo de gestión de JARVISZ.
-        HOY: {now}
-        
-        INPUT DEL USUARIO: "{message.text}"
-        
-        Tu tarea es clasificar la intención y extraer datos en JSON.
-        
-        ACCIONES POSIBLES:
-        - "create_event": Agendar reunion/turno/evento en calendario.
-        - "delete_event": Borrar/Cancelar un evento del calendario.
-        - "create_task": Crear una tarea/pendiente/recordatorio.
-        - "delete_task": Borrar/Tachar una tarea.
-        - "none": Si no es ninguna acción clara de modificación (solo pregunta).
-        
-        FORMATO JSON RESPUESTA:
-        {{
-            "action": "...",
-            "summary": "Titulo del evento o tarea (o texto de búsqueda para borrar)",
-            "start_time": "ISO8601 si aplica (2026-X-X T X:X:X)",
-            "reason": "Si es 'none', explicar por qué brevemente"
-        }}
-        
-        Solo JSON.
-        """
-        
         try:
-            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": message.text}]
-            json_str = await grok._call_with_retry(messages)
+            # Use OpenAI for intent analysis
+            json_str = await ai_service.analyze_intent(message.text, now)
             
             # Clean JSON
             json_str = json_str.replace("```json", "").replace("```", "").strip()
@@ -163,6 +130,7 @@ async def chat_handler(message: Message, state: FSMContext):
                 
         except Exception as e:
             # Fallback
+            print(f"DEBUG: Intent Analysis Error: {e}")
             pass
 
     # --- 2. FALLBACK TO STANDARD CHAT FLOW ---
@@ -170,7 +138,6 @@ async def chat_handler(message: Message, state: FSMContext):
     # Expanded Keywords
     body_triggers = ["chequeá", "chequea", "cuerpo", "escaner", "realidad", "estrés", "stress", "ansiedad", "abrumado", "scan", "signos"]
     
-    # Calendar Triggers: Broadened to catch specific event types or general time queries
     calendar_triggers = [
         "agenda", "calendario", "hoy", "mañana", "semana", "mes", 
         "tengo", "reunión", "compromiso", "turno", "cita", "médico", 
@@ -199,23 +166,15 @@ async def chat_handler(message: Message, state: FSMContext):
     # DEBUG LOGS
     print(f"DEBUG: Processing message: '{text}'")
     
-    # Trigger Logic Restored to avoid Rate Limits
     # Check Calendar
     is_direct_calendar_request = False
     if any(word in text for word in calendar_triggers) or "agenda" in text or "semana" in text:
         is_direct_calendar_request = True
         status_parts.append("agenda")
-        print("DEBUG: Calendar trigger detected.")
         try:
             cal = CalendarService()
-            # Fetch 7 days. This returns a nice formatted string.
-            print("DEBUG: Calling get_upcoming_events(7)...")
             calendar_events = cal.get_upcoming_events(7) 
-            print(f"DEBUG: Calendar events length: {len(str(calendar_events))}")
-            if "Error" in str(calendar_events):
-                print(f"DEBUG: Calendar returned ERROR: {calendar_events}")
         except Exception as e:
-            print(f"DEBUG: Exception getting calendar: {e}")
             calendar_events = f"Error: {e}"
             
     # Check Tasks
@@ -227,45 +186,26 @@ async def chat_handler(message: Message, state: FSMContext):
         except:
             tasks_data = None
             
-    # Check Body
-    if any(word in text for word in body_triggers):
-        status_parts.append("biometría")
-        try:
-            garmin = GarminService()
-            garmin_data = garmin.get_todays_metrics()
-        except:
-            garmin_data = None
-            
     # Get User History
     history = user_histories[user_id]
 
-    print(f"DEBUG: Status parts: {status_parts}")
-    print(f"DEBUG: Direct Request: {is_direct_calendar_request}")
-
     # UI Feedback
     if status_parts:
-        # BYPASS: Si pidió agenda y tenemos el texto lindo, mándalo directo
-        if is_direct_calendar_request:
-            if calendar_events and "Error" not in str(calendar_events):
-                print("DEBUG: SENDING DIRECT CALENDAR RESPONSE.")
-                # Mandamos la agenda cruda y hermosa
-                await message.answer(f"📅 **Agenda Semanal:**\n\n{calendar_events}")
-                
-                interaction_logger.log_interaction(message.text, calendar_events, {}, user_id)
-                return
-            else:
-                 print(f"DEBUG: Skipping direct response. Event Data: {calendar_events}")
+        if is_direct_calendar_request and calendar_events and "Error" not in str(calendar_events) and not garmin_data:
+             # Fast path for pure calendar requests if no complexity
+             # But let's let AI summarize if we have multiple things, or just send if simple.
+             pass
 
         msg = await message.answer(f"🔍 **Revisando {', '.join(status_parts)}...**")
-        print("DEBUG: Sending to Groq...")
-        response = await grok.chat(message.text, garmin_data, calendar_events, tasks_data, history)
-        print("DEBUG: Groq response received.")
+        
+        # Call OpenAI
+        response = await ai_service.chat(message.text, garmin_data, calendar_events, tasks_data, history)
+        
         await msg.delete()
         await message.answer(response)
     else:
-        # Normal chat without fetching tools (Fast path)
-        print("DEBUG: Normal chat path.")
-        response = await grok.chat(message.text, None, None, None, history)
+        # Normal chat
+        response = await ai_service.chat(message.text, None, None, None, history)
         await message.answer(response)
     
     # Update History if we continued

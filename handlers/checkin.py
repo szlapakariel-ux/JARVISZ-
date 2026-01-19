@@ -182,9 +182,9 @@ async def process_interoception(message: Message, state: FSMContext):
         session.add(new_checkin)
         await session.commit()
     
-    # Analyze with Groq (Llama 3)
-    from services.groq_service import GroqService
-    grok = GroqService()
+    # Analyze with OpenAI
+    from services.openai_service import OpenAIService
+    ai = OpenAIService()
     
     context = {
         "body_battery": data.get('body_battery'),
@@ -196,7 +196,7 @@ async def process_interoception(message: Message, state: FSMContext):
     # Show "Thinking..." status
     processing_msg = await message.answer("🤔 Analizando...")
     
-    ai_response = await grok.analyze_checkin(context, text)
+    ai_response = await ai.analyze_checkin(context, text)
     
     await processing_msg.delete()
     await message.answer(ai_response)
