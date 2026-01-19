@@ -129,33 +129,74 @@ class OpenAIService:
             logger.error(f"Checkin Analysis Error: {e}")
             return "Recibido. (Error analizando)"
 
-    async def analyze_intent(self, user_input: str, now_iso: str) -> str:
+    async def route_traffic(self, user_input: str) -> dict:
         """
-        Uses Chat Completion for deterministic JSON Intent Parsing.
+        TRAFFIC CONTROLLER (ROUTER).
+        Uses gpt-4o-mini (Cheap) to decide who handles the message.
+        Returns JSON: {"destination": "casual"|"management"|"consultant", "confidence": float}
         """
-        system_prompt = f"Sos el modulo de gestión. HOY: {now_iso}. Clasificar intención JSON."
-        # ... (Simplified for brevity, assuming main Logic remains similar or we re-use existing code)
-        # Actually I need the full prompt here to keep chat.py working
+        system_prompt = """
+        Sos el Router de JARVISZ. Tu única tarea es clasificar el mensaje del usuario para ahorrar costos.
         
-        full_system_prompt = f"""
-        Sos el modulo de gestión de JARVISZ. HOY: {now_iso}.
-        Tu tarea es clasificar la intención y extraer datos en JSON. STRICT JSON ONLY.
+        DESTINOS:
+        1. 'casual': Saludos, agradecimientos, chistes, preguntas simples ("Hola", "Gracias", "¿Estás ahí?").
+        2. 'management': El usuario quiere AGENDAR, BORRAR o CONSULTAR su calendario/tareas ("Agendar mañana", "Qué tengo hoy", "Borrar tarea").
+        3. 'consultant': El usuario pide consejos de salud, análisis profundo, preguntas sobre documentos/PDFs o "Chequeo de Realidad".
         
-        ACCIONES:
-        - "create_event": Agendar reunion/turno.
-        - "delete_event": Borrar evento.
-        - "create_task": Crear tarea.
-        - "delete_task": Borrar tarea.
-        - "none": Si no es comando de gestión.
-        
-        JSON FORMAT:
-        {{ "action": "...", "summary": "...", "start_time": "2026-MM-DDTHH:MM:SS" (or null) }}
+        Responded ONLY with JSON: {"destination": "..."}
         """
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": full_system_prompt},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.0
+            )
+            import json
+            content = response.choices[0].message.content.replace("```json", "").replace("```", "").strip()
+            return json.loads(content)
+        except Exception as e:
+            logger.error(f"Router Error: {e}")
+            return {"destination": "consultant"} # Default to powerful agent if unsure
+
+    async def casual_chat(self, user_input: str) -> str:
+        """
+        CASUAL SPECIALIST.
+        Uses gpt-4o-mini (Cheap) for small talk.
+        """
+        system_prompt = "Sos JARVISZ, un asistente amable y breve. Respondé con onda pero corto."
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return "Hola! (Error simple)"
+
+    async def extract_management_data(self, user_input: str, now_iso: str) -> str:
+        """
+        MANAGEMENT SPECIALIST (JSON Extractor).
+        Uses gpt-4o-mini to parse calendar/task intent.
+        """
+        system_prompt = f"""
+        Sos el Especialista de Gestión. HOY: {now_iso}.
+        Extraer datos JSON para Calendar/Tasks.
+        
+        ACCIONES: "create_event", "delete_event", "create_task", "delete_task", "read_calendar", "read_tasks".
+        
+        JSON: {{ "action": "...", "summary": "...", "start_time": "..." }}
+        """
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_input}
                 ],
                 temperature=0.1

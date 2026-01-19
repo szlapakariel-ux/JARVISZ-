@@ -60,50 +60,54 @@ user_histories = {}
 @router.message()
 async def chat_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    text = message.text.lower()
+    text = message.text
     
-    # Initialize history if new
-    if user_id not in user_histories:
-        user_histories[user_id] = []
+    # 1. TRAFFIC ROUTER (GPT-4o-mini)
+    # Decisions: 'casual', 'management', 'consultant'
+    route_result = await ai_service.route_traffic(text)
+    destination = route_result.get("destination", "consultant")
     
-    # --- 1. INTENT DETECTION (Regex/Keywords heuristic first) ---
-    intent_triggers = ["agendar", "borrar", "eliminar", "cancelar", "crear recordatorio"]
-    
-    if any(w in text for w in intent_triggers) and len(text.split()) > 2 and "?" not in text:
-        processing_msg = await message.answer("🧠 **Procesando solicitud...**")
+    print(f"DEBUG: Router Decision: {destination} for '{text}'")
+
+    # --- ROUTE: CASUAL (Cheap) ---
+    if destination == "casual":
+        response = await ai_service.casual_chat(text)
+        await message.answer(response)
         
-        from datetime import datetime
+        # Log Logic (Simplified)
+        interaction_logger.log_interaction(text, response, {"route": "casual"}, user_id)
+        return
+
+    # --- ROUTE: MANAGEMENT (Calendar/Tasks Actions) ---
+    elif destination == "management":
+        processing_msg = await message.answer(f"⚙️ **Gestionando...**")
+        
+        # Extract Strict Data (GPT-4o-mini)
         now = datetime.now().isoformat()
+        intent_json_str = await ai_service.extract_management_data(text, now)
         
+        # Parse JSON
         try:
-            # Use OpenAI for intent analysis
-            json_str = await ai_service.analyze_intent(message.text, now)
-            
-            # Clean JSON
-            json_str = json_str.replace("```json", "").replace("```", "").strip()
-            if "{" in json_str: 
-                json_str = json_str[json_str.find("{"):json_str.rfind("}")+1]
-            
-            intent = json.loads(json_str)
+            intent = json.loads(intent_json_str)
             action = intent.get('action')
             summary = intent.get('summary')
             
             await processing_msg.delete()
             
+            # Action: Create Event
             if action == "create_event":
                 await state.update_data(action="create_event", summary=summary, start_time=intent.get('start_time'))
-                start_pretty = intent['start_time'].replace('T', ' ')
+                start_pretty = intent.get('start_time', '').replace('T', ' ')
                 await message.answer(f"📅 **Confirmar Agendar:**\n\n📝 {summary}\n🕒 {start_pretty}\n\n(Sí/No)")
-                await state.set_state( ActionState.waiting_for_confirmation )
+                await state.set_state(ActionState.waiting_for_confirmation)
                 return
 
+            # Action: Delete Event
             elif action == "delete_event":
-                # Need to find it first
                 cal = CalendarService()
                 event = cal.find_next_event(summary)
                 if event:
                     await state.update_data(action="delete_event", id=event['id'], summary=event['summary'])
-                    # Format time
                     start_raw = event['start'].get('dateTime', event['start'].get('date'))
                     await message.answer(f"🗑️ **Confirmar Borrar Evento:**\n\n📝 {event['summary']}\n🕒 {start_raw}\n\n(Sí/No)")
                     await state.set_state(ActionState.waiting_for_confirmation)
@@ -111,117 +115,75 @@ async def chat_handler(message: Message, state: FSMContext):
                     await message.answer(f"⚠️ No encontré ningún evento próximo que coincida con '{summary}'.")
                 return
 
+            # Action: Create Task
             elif action == "create_task":
                 await state.update_data(action="create_task", summary=summary, start_time=intent.get('start_time'))
                 await message.answer(f"📋 **Confirmar Crear Tarea:**\n\n📝 {summary}\n\n(Sí/No)")
                 await state.set_state(ActionState.waiting_for_confirmation)
                 return
-
-            elif action == "delete_task":
-                tasks = TasksService()
-                task, list_id = tasks.find_task(summary)
-                if task:
-                    await state.update_data(action="delete_task", id=task['id'], list_id=list_id, summary=task['title'])
-                    await message.answer(f"🗑️ **Confirmar Borrar Tarea:**\n\n📝 {task['title']}\n\n(Sí/No)")
-                    await state.set_state(ActionState.waiting_for_confirmation)
-                else:
-                    await message.answer(f"⚠️ No encontré ninguna tarea pendiente que coincida con '{summary}'.")
+            
+            # Action: Read (Summarize with Casual Chat context)
+            elif action in ["read_calendar", "read_tasks"]:
+                context_str = ""
+                if "calendar" in action:
+                     cal = CalendarService()
+                     events = cal.get_upcoming_events(7)
+                     context_str += f"AGENDA: {events}\n"
+                if "tasks" in action:
+                     tasks = TasksService()
+                     t_data = tasks.get_all_tasks()
+                     context_str += f"TAREAS: {t_data}\n"
+                
+                # Use Casual Chat to summarize (Cheap)
+                response = await ai_service.casual_chat(f"Contexto: {context_str}. Usuario: {text}")
+                await message.answer(response)
                 return
                 
         except Exception as e:
-            # Fallback
-            print(f"DEBUG: Intent Analysis Error: {e}")
-            pass
+            print(f"Management Error: {e}")
+            await message.answer("⚠️ No pude entender la orden de gestión.")
+            return
 
-    # --- 2. FALLBACK TO STANDARD CHAT FLOW ---
+    # --- ROUTE: CONSULTANT (Heavy/Assistant) ---
+    # This is for Health, Advice, Deep Analysis, Document Search (RAG)
+    else:
+        # Fetch Context (Only if needed)
+        status_parts = []
+        garmin_data = None
+        calendar_events = None
+        tasks_data = None
 
-    # Expanded Keywords
-    body_triggers = ["chequeá", "chequea", "cuerpo", "escaner", "realidad", "estrés", "stress", "ansiedad", "abrumado", "scan", "signos"]
-    
-    calendar_triggers = [
-        "agenda", "calendario", "hoy", "mañana", "semana", "mes", 
-        "tengo", "reunión", "compromiso", "turno", "cita", "médico", 
-        "dentista", "gimnasio", "cumpleaños", "vacaciones", "feriado",
-        "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo",
-        "cuándo", "resumen"
-    ]
-    
-    tasks_triggers = ["tareas", "pendientes", "hacer", "to-do", "todo", "lista", "comprar"]
-    
-    garmin_data = None
-    calendar_events = None
-    tasks_data = None
-    
-    status_parts = []
-    
-    # Check Body
-    if any(word in text for word in body_triggers):
-        status_parts.append("sensores biométricos")
+        msg_wait = await message.answer("🧠 **Conectando con el Especialista...**")
+
+        # Heuristic: Check triggers to avoid API calls if obviously not needed? 
+        # Actually, for "Consultant", we assume we need context. But we can be smart.
+        # Let's fetch basic context always for the Assistant to be "aware".
+        
+        # 1. Garmin (Always useful for 'how am I?')
         try:
             garmin = GarminService()
             garmin_data = garmin.get_todays_metrics()
-        except Exception:
-            garmin_data = None
-            
-    # DEBUG LOGS
-    print(f"DEBUG: Processing message: '{text}'")
-    
-    # Check Calendar
-    is_direct_calendar_request = False
-    if any(word in text for word in calendar_triggers) or "agenda" in text or "semana" in text:
-        is_direct_calendar_request = True
-        status_parts.append("agenda")
+            status_parts.append("Biometría")
+        except: pass
+        
+        # 2. Calendar (Only if mentioned or broad context needed)
+        # For simplicity/robustness, we fetch it.
         try:
             cal = CalendarService()
-            calendar_events = cal.get_upcoming_events(7) 
-        except Exception as e:
-            calendar_events = f"Error: {e}"
-            
-    # Check Tasks
-    if any(word in text for word in tasks_triggers):
-        status_parts.append("tareas")
-        try:
-            tasks = TasksService()
-            tasks_data = tasks.get_all_tasks()
-        except:
-            tasks_data = None
-            
-    # Get User History
-    history = user_histories[user_id]
+            calendar_events = cal.get_upcoming_events(3) # Reduce to 3 days to save tokens?
+            status_parts.append("Agenda")
+        except: pass
 
-    # UI Feedback
-    if status_parts:
-        if is_direct_calendar_request and calendar_events and "Error" not in str(calendar_events) and not garmin_data:
-             # Fast path for pure calendar requests if no complexity
-             # But let's let AI summarize if we have multiple things, or just send if simple.
-             pass
-
-        msg = await message.answer(f"🔍 **Revisando {', '.join(status_parts)}...**")
-        
-        # Call OpenAI
-        # OpenAIService now manages history via Threads, so we pass user_id
+        # 3. Call Assistant API
         response = await ai_service.chat(
-            user_input=message.text, 
+            user_input=text, 
             garmin_data=garmin_data, 
             calendar_events=calendar_events, 
             tasks_data=tasks_data, 
             user_id=user_id
         )
         
-        await msg.delete()
+        await msg_wait.delete()
         await message.answer(response)
-    else:
-        # Normal chat
-        response = await ai_service.chat(
-            user_input=message.text, 
-            user_id=user_id
-        )
-        await message.answer(response)
-    
-    # Log Interaction (Removed history update since Assistant handles it)
-    interaction_logger.log_interaction(
-        user_message=message.text,
-        bot_response=response,
-        context_data={ "garmin": garmin_data, "calendar": calendar_events, "tasks": tasks_data },
-        user_id=message.from_user.id
-    )
+        
+        interaction_logger.log_interaction(text, response, {"route": "consultant"}, user_id)
