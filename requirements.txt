@@ -1,0 +1,12 @@
+aiogram>=3.0.0
+pydantic-settings
+sqlalchemy
+aiosqlite
+apscheduler
+python-dotenv
+garminconnect
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+groq
