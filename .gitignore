@@ -10,3 +10,5 @@ garmin_full_dump.json
 credentials.json
 token.json
 token_tasks.json
+
+railway_vars.json

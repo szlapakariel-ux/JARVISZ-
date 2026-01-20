@@ -23,10 +23,29 @@ class CalendarService:
         token_path = os.path.join(base_dir, 'token.json')
         creds_path = os.path.join(base_dir, 'credentials.json')
 
-        if os.path.exists(token_path):
+        logger.info(f"Authenticating Calendar Service. Token path: {token_path}, Creds path: {creds_path}")
+
+        # 1. Try Environment Variables (Priority for Server)
+        env_token_json = os.environ.get('GOOGLE_TOKEN_JSON')
+        env_creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+
+        if env_token_json:
+            try:
+                import json
+                info = json.loads(env_token_json)
+                self.creds = Credentials.from_authorized_user_info(info, SCOPES)
+                logger.info("Loaded Calendar credentials from GOOGLE_TOKEN_JSON env var.")
+            except Exception as e:
+                logger.error(f"Failed to load token from env var: {e}")
+                self.creds = None
+
+        # 2. Try Local File (Fallback for Local Dev)
+        if not self.creds and os.path.exists(token_path):
             try:
                 self.creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-            except Exception:
+                logger.info("Loaded Calendar credentials from local file.")
+            except Exception as e:
+                logger.error(f"Failed to load token from file: {e}")
                 self.creds = None
         
         # If there are no (valid) credentials available, let the user log in.
@@ -34,12 +53,43 @@ class CalendarService:
             if self.creds and self.creds.expired and self.creds.refresh_token:
                 try:
                     self.creds.refresh(Request())
+                    logger.info("Refreshed Calendar token.")
                 except Exception as e:
                     logger.error(f"Error refreshing token: {e}")
                     self.creds = None
             
             if not self.creds:
-                if os.path.exists(creds_path):
+                # Try to get client config from Env Var or File
+                client_config = None
+                
+                if env_creds_json:
+                     try:
+                        import json
+                        client_config = json.loads(env_creds_json)
+                        logger.info("Loaded Client Config from GOOGLE_CREDENTIALS_JSON env var.")
+                     except Exception as e:
+                        logger.error(f"Failed to parse creds env var: {e}")
+
+                if not client_config and os.path.exists(creds_path):
+                     logger.info(f"Loading Client Config from file: {creds_path}")
+                     # let InstalledAppFlow handle the file path directly or read it here.
+                     # InstalledAppFlow.from_client_secrets_file is easier given existing code structure,
+                     # but we need to handle the Env Var case which returns a dict (client_config).
+                     pass 
+
+                if client_config:
+                     # Flow from dict
+                     try:
+                        flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+                        # We cannot run local server on a headless server without port forwarding, 
+                        # so this path is mostly for local setup if we injected env vars but no token yet.
+                        # On a real server, we expect the TOKEN to be present if we are running.
+                        # But for completeness:
+                        self.creds = flow.run_local_server(port=0)
+                     except Exception as e:
+                         logger.error(f"Failed flow from client config: {e}")
+
+                elif os.path.exists(creds_path):
                     try:
                         flow = InstalledAppFlow.from_client_secrets_file(
                             creds_path, SCOPES)
@@ -48,16 +98,17 @@ class CalendarService:
                         # Save the credentials for the next run
                         with open(token_path, 'w') as token:
                             token.write(self.creds.to_json())
+                        logger.info("Generated new token.json locally.")
                     except Exception as e:
-                        logger.error(f"Failed to auth flow: {e}")
+                        logger.error(f"Failed to auth flow from file: {e}")
                         return False
                 else:
-                    logger.warning(f"No credentials.json found at {creds_path}. Calendar disabled.")
+                    logger.warning(f"No credentials found (Env or File). Calendar disabled.")
                     return False
 
         try:
             self.service = build('calendar', 'v3', credentials=self.creds)
-            logger.info("Calendar service initialized.")
+            logger.info("Calendar service initialized successfully.")
             return True
         except Exception as e:
             logger.error(f"Failed to build calendar service: {e}")
