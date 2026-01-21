@@ -62,6 +62,12 @@ async def chat_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
     text = message.text
     
+    # --- DEBUG: TEST DE CONEXIÓN ---
+    # Si esto responde, la conexión Telegram <-> Railway funciona perfecto.
+    # El problema estaría entonces en OpenAI o el Agente.
+    await message.answer(f"✅ CONEXIÓN OK\nRecibido: {text}")
+    return
+    
     # 1. TRAFFIC ROUTER (GPT-4o-mini)
     # Decisions: 'casual', 'management', 'consultant'
     route_result = await ai_service.route_traffic(text)
