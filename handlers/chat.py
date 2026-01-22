@@ -7,6 +7,7 @@ from services.interaction_logger import InteractionLogger
 from services.garmin import GarminService
 from services.calendar_service import CalendarService
 from services.tasks_service import TasksService
+from services.chunking_service import ChunkingService
 from handlers.response_utils import send_smart_response, continue_smart_response
 from aiogram.types import CallbackQuery
 from datetime import datetime
@@ -145,6 +146,24 @@ async def chat_handler(message: Message, state: FSMContext):
             print(f"Management Error: {e}")
             await message.answer("⚠️ No pude entender la orden de gestión.")
             return
+
+    # --- ROUTE: BREAKDOWN (Task Chunking) ---
+    elif destination == "breakdown":
+        msg_wait = await message.answer("🧩 **Desglosando tarea...**")
+        chunker = ChunkingService()
+        steps = await chunker.breakdown_task(text)
+        
+        # Format response
+        response = "Acá tenés un plan de ataque rápido para no bloquearte:\n\n"
+        for step in steps:
+            response += f"▫️ {step}\n"
+            
+        response += "\n¿Arrancamos con el 1? <<BUTTONS: ¡Dale!, Mejor otra cosa>>"
+        
+        await msg_wait.delete()
+        await send_smart_response(message, response, state)
+        interaction_logger.log_interaction(text, response, {"route": "breakdown"}, user_id)
+        return
 
     # --- ROUTE: CONSULTANT (Heavy/Assistant) ---
     # This is for Health, Advice, Deep Analysis, Document Search (RAG)

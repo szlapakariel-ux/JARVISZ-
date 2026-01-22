@@ -3,7 +3,9 @@ import json
 from typing import List, Tuple, Optional, Any
 from aiogram.types import Message, InlineKeyboardMarkup, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
+from handlers.timer_utils import TimerManager
 
 class ResponseSplitter:
     MAX_BUBBLES_PER_BATCH = 3 
@@ -63,7 +65,21 @@ async def send_smart_response(message_or_callback: Any, text: str, state: FSMCon
     Handles extraction, splitting, and initial sending.
     """
     # 1. Cleaning & Extraction
-    clean_text, button_def = ResponseSplitter.extract_buttons(text)
+    # 1. Cleaning & Extraction
+    # Checks for Timer *first* so we remove it from text
+    text_no_timer, t_mins, t_label = TimerManager.parse_timer_tag(text)
+    
+    clean_text, button_def = ResponseSplitter.extract_buttons(text_no_timer)
+    
+    # Trigger Timer if found (Fire and Forget)
+    if t_mins and t_label:
+        # We need the bot object and chat_id
+        msg_obj = message_or_callback if isinstance(message_or_callback, Message) else message_or_callback.message
+        bot = msg_obj.bot
+        chat_id = msg_obj.chat.id
+        # Run timer in background task
+        import asyncio
+        asyncio.create_task(TimerManager.set_timer(chat_id, t_mins, t_label, bot))
     
     # 2. Splitting
     all_bubbles = ResponseSplitter.split_text(clean_text)
