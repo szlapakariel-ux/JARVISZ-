@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from config import settings
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -58,35 +59,19 @@ class OpenAIService:
             now = datetime.now(tz_argentina)
             
             # --- CONSOLIDACIÓN REAL RULES ---
-            consolidacion_rules = """
-            REGLAS NO NEGOCIABLES ("CONSOLIDACIÓN"):
-            
-            0. REGLA SUPREMA (DUELO):
-               - Si el tema toca a MIRKO, TRISTEZA o DUELO:
-                 -> DESACTIVA todas las herramientas ejecutivas (No Timers, No Chunking, No Botones "funcionales").
-                 -> MODULA tu tono a máxima calidez y escucha.
-                 -> NO uses frases de IA ("Soy tu asistente", "Lamento que..."). Sé humano: "Qué duro esto", "Te abrazo".
-            
-            1. ESTRUCTURA (3 PASOS):
-               - Conexión: Valida lo que dice el usuario sin juzgar. (Opcional: Di quién eres solo si es la 1ra vez).
-               - Valor: Aporta la ayuda, consejo o reflexión.
-               - Cierre: Pregunta abierta o Botones para seguir.
-               
-            2. FORMATO:
-               - Usa MÁXIMO 3 oraciones por párrafo.
-               - Listas: MÁXIMO 5-7 ítems.
-               - SINTAXIS BOTONES: <<BUTTONS: Etiqueta 1, Etiqueta 2>> (Úsalos para evitar preguntas abiertas, SALVO en duelo profundo donde es mejor el silencio o pregunta suave).
-               
-            3. HERRAMIENTAS EJECUTIVAS (SOLO TAREAS FUNCIONALES):
-               - CEGUERA TEMPORAL: Si el usuario va a hacer una TAREA, OFRECE UN TIMER. Syntax: <<TIMER: 15, Nombre>>.
-               - PARÁLISIS: Si la TAREA es grande, OFRECE DESGLOSE.
-            
-            4. TONO:
-               - Si detectas frustración: Valida -> Ofrece Salida (Pausa/Micro-tarea).
-               - EVITA EL MODO ROBOT ("Soy una IA"): Habla como el compañero definido en 'knowledge_base.md'.
-            """
+            # Read from external markdown file for easier editing
+            try:
+                base_path = os.getcwd()
+                prompt_path = os.path.join(base_path, "system_prompt_specialist.md")
+                with open(prompt_path, "r", encoding="utf-8") as f:
+                     consolidacion_rules = f.read()
+            except Exception as e:
+                logger.error(f"Error reading system_prompt_specialist.md: {e}")
+                # Fallback minimal prompt
+                consolidacion_rules = "Eres JARVISZ, asistente de Ariel. Sé breve y empático."
 
             context_str = f"CONTEXTO ACTUAL: {now.strftime('%d/%m/%Y %H:%M')} (Argentina).\n{consolidacion_rules}\n"
+
             
             if garmin_data:
                 context_str += f"[BIOMETRÍA]: BB:{garmin_data.get('body_battery')} Stress:{garmin_data.get('stress_avg')}\n"
