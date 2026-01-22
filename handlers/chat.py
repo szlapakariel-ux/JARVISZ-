@@ -7,7 +7,8 @@ from services.interaction_logger import InteractionLogger
 from services.garmin import GarminService
 from services.calendar_service import CalendarService
 from services.tasks_service import TasksService
-import json
+from handlers.response_utils import send_smart_response, continue_smart_response
+from aiogram.types import CallbackQuery
 from datetime import datetime
 
 router = Router()
@@ -185,6 +186,25 @@ async def chat_handler(message: Message, state: FSMContext):
         )
         
         await msg_wait.delete()
-        await message.answer(response)
+        # USE SMART RESPONSE (Consolidacion Rules)
+        await send_smart_response(message, response, state)
         
         interaction_logger.log_interaction(text, response, {"route": "consultant"}, user_id)
+
+# --- SMART CALLBACK HANDLERS ---
+@router.callback_query(F.data == "smart_page")
+async def on_smart_page(callback: CallbackQuery, state: FSMContext):
+    await continue_smart_response(callback, state)
+
+@router.callback_query(F.data.startswith("smart_act:"))
+async def on_smart_action(callback: CallbackQuery):
+    action = callback.data.split(":")[1]
+    # Here we would handle specific actions or just echo for now
+    await callback.answer(f"Acción seleccionada: {action}")
+    # Ideally, loop back into chat_handler as if user typed it?
+    # For now, let's just send it as a message from user to trigger logic?
+    # Or just acknowledge.
+    await callback.message.answer(f"Comprendido: {action}")
+    # OPTIONAL: recursar al bot con este input?
+    # await chat_handler(callback.message, state) -> Message object needed.
+

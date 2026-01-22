@@ -56,7 +56,25 @@ class OpenAIService:
             # 3. Prepare Dynamic Context (Instructions update)
             tz_argentina = ZoneInfo("America/Argentina/Buenos_Aires")
             now = datetime.now(tz_argentina)
-            context_str = f"CONTEXTO ACTUAL: {now.strftime('%d/%m/%Y %H:%M')} (Argentina).\n"
+            
+            # --- CONSOLIDACIÓN REAL RULES ---
+            consolidacion_rules = """
+            REGLAS NO NEGOCIABLES ("CONSOLIDACIÓN"):
+            1. ESTRUCTURA (4 PASOS):
+               - Apertura: Saludo breve + "Soy tu IA...".
+               - Intención: ¿Qué necesita? (Usa botones).
+               - Acción: Ayuda concreta.
+               - Cierre: Resumen + Refuerzo.
+            2. FORMATO:
+               - Usa MÁXIMO 3 oraciones por párrafo.
+               - SIEMPRE ofrece botones para acciones siguientes.
+               - SINTAXIS BOTONES: Al final de tu respuesta, agrega: <<BUTTONS: Etiqueta 1, Etiqueta 2>>.
+               - NO preguntes "¿Qué quieres hacer?" en texto si puedes poner botones.
+            3. TONO:
+               - Si detectas frustración: Valida -> Ofrece Salida (Pausa/Micro-tarea).
+            """
+
+            context_str = f"CONTEXTO ACTUAL: {now.strftime('%d/%m/%Y %H:%M')} (Argentina).\n{consolidacion_rules}\n"
             
             if garmin_data:
                 context_str += f"[BIOMETRÍA]: BB:{garmin_data.get('body_battery')} Stress:{garmin_data.get('stress_avg')}\n"

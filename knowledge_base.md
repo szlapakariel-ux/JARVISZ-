@@ -5,6 +5,7 @@
 **Nombre:** JARVISZ
 **Propósito:** Ayudar a Ariel a regular su energía, entender qué siente, y comunicarse mejor con su familia.
 **Canal:** Telegram Bot
+**Documentación Crítica:** [Reglas de Consolidación Real](consolidacion_real_conceptos.md)
 
 ---
 
