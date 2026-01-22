@@ -60,6 +60,10 @@ class InteractionLogger:
             # Guardar en archivo diario
             log_file = self.log_dir / f"interactions_{now.strftime('%Y-%m-%d')}.jsonl"
             
+            # --- PRIVACY SCRUBBING ---
+            interaction["user_message"] = self._scrub_pii(user_message)
+            interaction["bot_response"] = self._scrub_pii(bot_response)
+            
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(interaction, ensure_ascii=False) + "\n")
             
@@ -67,6 +71,27 @@ class InteractionLogger:
             
         except Exception as e:
             logger.error(f"Error logging interaction: {e}")
+
+    def _scrub_pii(self, text: str) -> str:
+        """
+        Removes sensitive data based on blacklist rules.
+        """
+        import re
+        if not text: return ""
+        
+        # 1. Emails
+        text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[EMAIL REDACTED]', text)
+        
+        # 2. Phone Numbers (Simple Argentine format)
+        text = re.sub(r'(?:\+?54)?\s*(?:9)?\s*11\s*\d{4}[-\s]*\d{4}', '[PHONE REDACTED]', text)
+        
+        # 3. Specific Keywords (Medication - placeholders)
+        # Add actual medication names here if known/provided in private config
+        sensitive_keywords = ["clonazepam", "rivotril", "sertralina"] 
+        for kw in sensitive_keywords:
+            text = re.sub(f'(?i){kw}', '[MEDICAMENTO REDACTED]', text)
+            
+        return text
     
     def get_all_unreviewed(self):
         """

@@ -198,8 +198,14 @@ async def process_interoception(message: Message, state: FSMContext):
     
     ai_response = await ai.analyze_checkin(context, text)
     
+    # Fetch KPIs
+    from services.analytics_service import AnalyticsService
+    kpis = await AnalyticsService.get_kpis(user_id)
+    
+    kpi_msg = f"\n\n📊 **Tus Métricas:**\n🔥 Racha: {kpis['streak']} días | ✅ Adherencia: {kpis['adherence']}%"
+    
     await processing_msg.delete()
-    await message.answer(ai_response)
+    await message.answer(ai_response + kpi_msg)
     await state.clear()
 
 # --- Evening Flows ---
@@ -254,5 +260,10 @@ async def process_reflection(message: Message, state: FSMContext):
     else:
         response += "🟡 **Día normal.**\nHasta mañana Ariel."
 
-    await message.answer(response)
+    # Fetch KPIs
+    from services.analytics_service import AnalyticsService
+    kpis = await AnalyticsService.get_kpis(user_id)
+    kpi_msg = f"\n\n📊 **Tus Métricas:**\n🔥 Racha: {kpis['streak']} días | ✅ Adherencia: {kpis['adherence']}%"
+    
+    await message.answer(response + kpi_msg)
     await state.clear()

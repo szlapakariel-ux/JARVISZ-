@@ -60,3 +60,17 @@ class JournalEntry(Base):
     tags = Column(String, nullable=True) # JSON or comma-separated
     
     user = relationship("User", back_populates="journal_entries")
+
+class KPIEvent(Base):
+    __tablename__ = 'kpi_events'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    event_type = Column(String) # 'frustration', 'timer_set', 'task_breakdown', 'interaction'
+    meta_data = Column(String, nullable=True) # JSON extra info
+    
+    user = relationship("User", back_populates="kpi_events")
+
+User.kpi_events = relationship("KPIEvent", back_populates="user")
