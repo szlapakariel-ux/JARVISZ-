@@ -216,14 +216,48 @@ async def on_smart_page(callback: CallbackQuery, state: FSMContext):
     await continue_smart_response(callback, state)
 
 @router.callback_query(F.data.startswith("smart_act:"))
-async def on_smart_action(callback: CallbackQuery):
+async def on_smart_action(callback: CallbackQuery, state: FSMContext):
     action = callback.data.split(":")[1]
-    # Here we would handle specific actions or just echo for now
-    await callback.answer(f"Acción seleccionada: {action}")
-    # Ideally, loop back into chat_handler as if user typed it?
-    # For now, let's just send it as a message from user to trigger logic?
-    # Or just acknowledge.
-    await callback.message.answer(f"Comprendido: {action}")
-    # OPTIONAL: recursar al bot con este input?
-    # await chat_handler(callback.message, state) -> Message object needed.
+    
+    # --- HANDLING CONSOLIDATED ACTIONS ---
+    # These are standard buttons the LLM might consistently use due to instructions
+    
+    if action.lower() in ["pausa", "descanso", "frenar"]:
+        # Frustration Protocol: Offer breathing or silence
+        await callback.message.answer(
+            "🛑 **Protocolo de Pausa Activado**\n\n"
+            "Soltá el teléfono. Respirá hondo 3 veces.\n"
+            "JARVISZ entra en silencio por 5 minutos.\n\n"
+            "(Si necesitás volver antes, escribí 'volver')"
+        )
+        # Here we could set a state to ignore messages or set a timer
+        from handlers.timer_utils import TimerManager
+        await TimerManager.set_timer(callback.message.chat.id, 5, "Pausa de Emergencia", callback.message.bot)
+        
+    elif action.lower() in ["micro-tarea", "algo fácil", "microtarea"]:
+        # Dopamine Hack: Give trivial task
+        tasks = [
+            "Tomá un vaso de agua.",
+            "Estirá los brazos arriba por 10 segundos.",
+            "Tirá un papel a la basura.",
+            "Abrí y cerrá los ojos fuerte 3 veces."
+        ]
+        import random
+        t = random.choice(tasks)
+        await callback.message.answer(f"✨ **Micro-Misión:**\n\n{t}\n\nSi la hacés, ganás.", reply_markup=None)
+        
+    elif action.lower() in ["cambiar de tema", "otra cosa"]:
+        # Reset context
+        await state.clear()
+        await callback.message.answer("🔄 **Tema reiniciado.**\n\n¿En qué nos enfocamos ahora?")
+        
+    else:
+        # Generic fallback for other dynamic buttons LLM might invent
+        # We treat it as user saying that phrase
+        await callback.message.answer(f"👍 **{action}**")
+        # Reuse chat logic to process this as a message?
+        # Ideally yes, but maybe too deep recursion.
+        # For now, just acknowledge.
+
+    await callback.answer()
 
