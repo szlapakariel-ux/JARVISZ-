@@ -67,6 +67,7 @@ class OpenAIService:
                - Cierre: Resumen + Refuerzo.
             2. FORMATO:
                - Usa MÁXIMO 3 oraciones por párrafo.
+               - Listas: MÁXIMO 5-7 ítems.
                - SIEMPRE ofrece botones para acciones siguientes.
                - SINTAXIS BOTONES: Al final de tu respuesta, agrega: <<BUTTONS: Etiqueta 1, Etiqueta 2>>.
             3. HERRAMIENTAS EJECUTIVAS (MODO TDAH):
